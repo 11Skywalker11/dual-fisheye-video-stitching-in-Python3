@@ -16,7 +16,7 @@ H = 1280
 # --------------------------------
 # field of view, width of de-warped image
 FOV = 194.0
-W_remap = 1380
+W_remap = 1380  # input width + overlap
 # --------------------------------
 # params for template matching
 templ_shape = (60, 16)
@@ -147,14 +147,14 @@ def main(input, output):
 
         # write results from phases
         out.write(blended.astype(np.uint8))
-        cv2.imwrite('C:/Users/Admin/Desktop/fisheye/inPy3/output/0.png', cam1)
-        cv2.imwrite('C:/Users/Admin/Desktop/fisheye/inPy3/output/1.png', cam2)
-        cv2.imwrite('C:/Users/Admin/Desktop/fisheye/inPy3/output/2.png', shifted_cams)
-        cv2.imwrite('C:/Users/Admin/Desktop/fisheye/inPy3/output/3.png', warped2)
-        cv2.imwrite('C:/Users/Admin/Desktop/fisheye/inPy3/output/4.png', warped1)
-        cv2.imwrite('C:/Users/Admin/Desktop/fisheye/inPy3/output/5.png', frame)
-        cv2.imwrite('C:/Users/Admin/Desktop/fisheye/inPy3/output/labeled.png', labeled.astype(np.uint8))
-        cv2.imwrite('C:/Users/Admin/Desktop/fisheye/inPy3/output/blended.png', blended.astype(np.uint8))
+        cv2.imwrite(dir_path + '/output/0.png', cam1)
+        cv2.imwrite(dir_path + '/output/1.png', cam2)
+        cv2.imwrite(dir_path + '/output/2.png', shifted_cams)
+        cv2.imwrite(dir_path + '/output/3.png', warped2)
+        cv2.imwrite(dir_path + '/output/4.png', warped1)
+        cv2.imwrite(dir_path + '/output/5.png', frame)
+        cv2.imwrite(dir_path + '/output/labeled.png', labeled.astype(np.uint8))
+        cv2.imwrite(dir_path + '/output/blended.png', blended.astype(np.uint8))
 
     # process each frame
     while(cap.isOpened()):
@@ -212,7 +212,125 @@ def main(input, output):
     cv2.destroyAllWindows()
 
 
-if __name__ == '__main__':
+def Hcalc_image(frame1, frame2, xmap, ymap):
+    """Calculate and return homography for stitching process."""
+    Mlist = []
+
+    # defish / unwarp
+    cam1 = cv2.remap(frame1, xmap, ymap, cv2.INTER_LINEAR)
+    cam2 = cv2.remap(frame2, xmap, ymap, cv2.INTER_LINEAR)
+    cam1_gray = cv2.cvtColor(cam1, cv2.COLOR_BGR2GRAY)
+    cam2_gray = cv2.cvtColor(cam2, cv2.COLOR_BGR2GRAY)
+
+    # shift the remapped images along x-axis
+    shifted_cams = np.zeros((H * 2, W, 3), np.uint8)
+    shifted_cams[H:, int((W - W_remap) / 2):int((W + W_remap) / 2)] = cam2
+    shifted_cams[:H, :int(W_remap / 2)] = cam1[:, int(W_remap / 2):]
+    shifted_cams[:H, W - int(W_remap / 2):] = cam1[:, :int(W_remap / 2)]
+
+    # find matches and extract pairs of correspondent matching points
+    matchesL = feature_matching.getMatches_goodtemplmatch(
+        cam1_gray[offsetYL:H - offsetYL, int(W / 2):],
+        cam2_gray[offsetYL:H - offsetYL, :W_remap - int(W / 2)],
+        templ_shape, maxL)
+    matchesR = feature_matching.getMatches_goodtemplmatch(
+        cam2_gray[offsetYR:H - offsetYR, int(W / 2):],
+        cam1_gray[offsetYR:H - offsetYR, :W_remap - int(W / 2)],
+        templ_shape, maxR)
+    matchesR = matchesR[:, -1::-1]
+
+    matchesL = matchesL + (int((W - W_remap) / 2), offsetYL)
+    matchesR = matchesR + (int((W - W_remap) / 2) + int(W / 2), offsetYR)
+    zipped_matches = list(zip(matchesL, matchesR))
+    matches = np.int32([e for i in zipped_matches for e in i])
+    pts1 = matches[:, 0]
+    pts2 = matches[:, 1]
+
+    # find homography from pairs of correspondent matchings
+    M, status = cv2.findHomography(pts2, pts1, cv2.RANSAC, 4.0)
+    Mlist.append(M)
+
+    M = np.average(np.array(Mlist), axis=0)
+    print(M)
+
+    return M
+
+def main_image(input1, input2):
+    frame1 = cv2.imread(input1)
+    frame2 = cv2.imread(input2)
+
+    if frame1.shape != frame2.shape:
+        print('Images size are different.')
+        return
+
+    # obtain xmap and ymap
+    xmap, ymap = dewarp.buildmap(Ws=W_remap, Hs=H, Wd=W, Hd=H, fov=FOV)  # Ws = W_remap = image width + overlap width
+
+    # calculate homography
+    M = Hcalc_image(frame1, frame2, xmap, ymap)
+
+    # calculate vertical boundary of warped image, for later cropping
+    top, bottom = cropping.verticalBoundary(M, W_remap, W, H)
+
+    # estimate empty (invalid) area of warped2
+    EAof2 = np.zeros((H, W, 3), np.uint8)
+    EAof2[:, int((W - W_remap) / 2) + 1:int((W + W_remap) / 2) - 1] = 255
+    EAof2 = cv2.warpPerspective(EAof2, M, (W, H))
+
+    # de-warp
+    cam1 = cv2.remap(frame1, xmap, ymap, cv2.INTER_LINEAR)
+    cam2 = cv2.remap(frame2, xmap, ymap, cv2.INTER_LINEAR)
+
+    # shift the remapped images along x-axis
+    shifted_cams = np.zeros((H * 2, W, 3), np.uint8)
+    shifted_cams[H:, int((W - W_remap) / 2):int((W + W_remap) / 2)] = cam2
+    shifted_cams[:H, :int(W_remap / 2)] = cam1[:, int(W_remap / 2):]
+    shifted_cams[:H, int(W - W_remap / 2):] = cam1[:, :int(W_remap / 2)]
+
+    # warp cam2 using homography M
+    warped2 = cv2.warpPerspective(shifted_cams[H:], M, (W, H))
+    warped1 = shifted_cams[:H]
+
+    # crop to get a largest rectangle, and resize to maintain resolution
+    warped1 = cv2.resize(warped1[top:bottom], (W, H))
+    warped2 = cv2.resize(warped2[top:bottom], (W, H))
+
+    # image labeling (find minimum error boundary cut)
+    mask, minloc_old = optimal_seamline.imgLabeling(
+        warped1[:, int(W_remap / 2) - W_lbl:int(W_remap / 2)],
+        warped2[:, int(W_remap / 2) - W_lbl:int(W_remap / 2)],
+        warped1[:, W - int(W_remap / 2):W - int(W_remap / 2) + W_lbl],
+        warped2[:, W - int(W_remap / 2):W - int(W_remap / 2) + W_lbl],
+        (W, H), int(W_remap / 2) - W_lbl, W - int(W_remap / 2))
+
+    labeled = warped1 * mask + warped2 * (1 - mask)
+
+    # fill empty area of warped1 and warped2, to avoid darkening
+    warped1[:, int(W_remap / 2):W - int(W_remap /
+            2)] = warped2[:, int(W_remap / 2):W - int(W_remap / 2)]
+    warped2[EAof2 == 0] = warped1[EAof2 == 0]
+
+    # multi band blending
+    blended = blending.multi_band_blending(
+        warped1, warped2, mask, blend_level)
+
+    # cv2.imshow('p', blended.astype(np.uint8))
+    # cv2.waitKey(0)
+
+    # write results from phases
+    cv2.imwrite(dir_path + '/output/image-0.png', cam1)
+    cv2.imwrite(dir_path + '/output/image-1.png', cam2)
+    cv2.imwrite(dir_path + '/output/image-2.png', shifted_cams)
+    cv2.imwrite(dir_path + '/output/image-3.png', warped2)
+    cv2.imwrite(dir_path + '/output/image-4.png', warped1)
+    cv2.imwrite(dir_path + '/output/image-labeled.png', labeled.astype(np.uint8))
+    cv2.imwrite(dir_path + '/output/image-blended.png', blended.astype(np.uint8))
+
+    # release everything if job is finished
+    cv2.destroyAllWindows()
+
+
+'''if __name__ == '__main__':
     # construct the argument parse and parse the arguments
     ap = argparse.ArgumentParser(
         description="A summer research project to seamlessly stitch \
@@ -224,4 +342,15 @@ if __name__ == '__main__':
                     help="path to the output equirectangular video")
 
     args = vars(ap.parse_args())
-    main(args['input'], args['output'])
+    main(args['input'], args['output'])'''
+
+# Prepare input images:
+# 1. Must be square
+# 2. Height & Width must be multiple of 2^7 (for image pyramid)
+
+# Resize the image to 2560. Fill in the background to black. Make it a square image
+W_remap = 2760  # overlap pixel to 200
+W = 5120
+H = 2560
+FOV = 190  # By model
+main_image(dir_path + '/input/dual-fisheye-take-2-1-square.jpg', dir_path + '/input/dual-fisheye-take-2-2-square.jpg')
