@@ -8,6 +8,7 @@ import optimal_seamline
 import blending
 import cropping
 import os
+import uuid
 
 # --------------------------------
 # output video resolution
@@ -32,6 +33,20 @@ blend_level = 7
 dir_path = os.path.dirname(os.path.realpath(__file__))
 cwd = os.getcwd()
 # --------------------------------
+
+
+    id = str(uuid.uuid4())
+
+    if controllable_size:
+        # 讓視窗可以自由縮放大小
+        cv2.namedWindow(id, cv2.WINDOW_NORMAL)
+
+    # 顯示圖片
+    cv2.imshow(id, img)
+
+    # 按下任意鍵則關閉所有視窗
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
 
 def Hcalc(cap, xmap, ymap):
@@ -264,7 +279,9 @@ def main_image(input1, input2):
         return
 
     # obtain xmap and ymap
-    xmap, ymap = dewarp.buildmap(Ws=W_remap, Hs=H, Wd=W, Hd=H, fov=FOV)  # Ws = W_remap = image width + overlap width
+    # Ws = W_remap = image width + overlap width
+    # Wd = Hd = image height
+    xmap, ymap = dewarp.buildmap(Ws=W_remap, Hs=H, Wd=H, Hd=H, fov=FOV)
 
     # calculate homography
     M = Hcalc_image(frame1, frame2, xmap, ymap)
@@ -321,6 +338,7 @@ def main_image(input1, input2):
     cv2.imwrite(dir_path + '/output/image-0.png', cam1)
     cv2.imwrite(dir_path + '/output/image-1.png', cam2)
     cv2.imwrite(dir_path + '/output/image-2.png', shifted_cams)
+    cv2.imwrite(dir_path + '/output/image-EAof2.png', EAof2)
     cv2.imwrite(dir_path + '/output/image-3.png', warped2)
     cv2.imwrite(dir_path + '/output/image-4.png', warped1)
     cv2.imwrite(dir_path + '/output/image-labeled.png', labeled.astype(np.uint8))
@@ -349,8 +367,14 @@ def main_image(input1, input2):
 # 2. Height & Width must be multiple of 2^7 (for image pyramid)
 
 # Resize the image to 2560. Fill in the background to black. Make it a square image
-W_remap = 2760  # overlap pixel to 200
+# --------------------------------
+# output video resolution
 W = 5120
 H = 2560
-FOV = 190  # By model
+# --------------------------------
+# field of view, width of de-warped image
+FOV = 190.0
+W_remap = 2760  # input width + overlap (200)
+# --------------------------------
+
 main_image(dir_path + '/input/dual-fisheye-take-2-1-square.jpg', dir_path + '/input/dual-fisheye-take-2-2-square.jpg')

@@ -41,7 +41,7 @@ def getMatches_goodtemplmatch(img1, img2, templ_shape, max):
         sys.exit()
     if not (np.all(templ_shape <= img1.shape[:2]) and
             np.all(templ_shape <= img2.shape[:2])):
-        print ("error: template shape shall fit img1 and img2")
+        print("error: template shape shall fit img1 and img2")
         sys.exit()
 
     feature_params = dict(maxCorners=max, qualityLevel=0.01,
