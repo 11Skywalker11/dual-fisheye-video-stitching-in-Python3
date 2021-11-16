@@ -1,0 +1,9 @@
+# --------------------------------
+# output video resolution
+W = 5120
+H = 2560
+# --------------------------------
+# field of view, width of de-warped image
+FOV = 202.0
+W_remap = 2760  # input width + overlap (200)
+# --------------------------------
