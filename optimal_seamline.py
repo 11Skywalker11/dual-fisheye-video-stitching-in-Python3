@@ -40,5 +40,5 @@ def imgLabeling(img1, img2, img3, img4, maskSize, xoffsetL, xoffsetR,
         mask[i, minlocL_fin[i]:minlocR_fin[i]] = 0
         mask[i, minlocL_fin[i]] = 0.5
         mask[i, minlocR_fin[i]] = 0.5
-    cv2.imshow('mask', mask.astype(np.float32))
+    # cv2.imshow('mask', mask.astype(np.float32))
     return mask, [minlocL, minlocR, minlocL_fin, minlocR_fin]
